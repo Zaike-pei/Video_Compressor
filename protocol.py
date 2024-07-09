@@ -4,7 +4,8 @@ def prptocol_header(size):
     header  = size.to_bytes(32, 'big')
     return header
 
-def protocol_media_header():
+# jsonのバイト数、データタイプバイト数、ペイロードバイト数の送信
+def protocol_media_header(json, type, payload):
     
     return 
 

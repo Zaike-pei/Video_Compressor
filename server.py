@@ -55,15 +55,11 @@ class Tcp_server:
                         connection.send(response)
 
 
-
+                        # json、ヘッダーの作成
 
 
                         # jsonの作成
-                        json_data = {
-                            "filename": self.content,
-                            "content-type": self.content_madia_type,
-                            "content-size": self.content_size
-                        }
+
 
                     break
 
@@ -99,7 +95,17 @@ class Tcp_server:
             self.state = 1
         
 
-        
+    # jsonの作成
+    def makeJson(self):
+        json_data = {
+            "filename": self.content,
+            "content-type": self.content_madia_type,
+            "content-size": self.content_size
+        }
+
+        return json.dumps(json_data).encode('utf-8')
+
+
 
     
     # def json_test(self):
