@@ -28,15 +28,8 @@ class Tcp_client:
             # ファイル名とサイズの取得
             self.getFileInfo()
 
-            # jsonの作成
-            json_data = {
-                "filename": self.content,
-                "content-type": self.content_madia_type,
-                "content-size": self.content_size
-            }
             # ヘッダの作成と送信
             header = protocol.prptocol_header(self.content_size)
-
             self.sock.send(header)
             # 動画データの送信
             self.uploadVideo()
@@ -44,26 +37,19 @@ class Tcp_client:
             recv_data = self.sock.recv(16)
             self.state = protocol.get_state(recv_data)
             print('[server]:' + protocol.get_message(recv_data))
-
             # 正常に動画を送信できた場合の処理
             if self.state == 1:
-                # コマンドの送信
+                print('hello')
+                # コマンドの作成
                 
-                
 
 
 
 
-            # jsonテスト用
-            # data = self.json_test()
-            # print(len(json.dumps(data).encode('utf-8')))
-            # self.sock.send(json.dumps(data).encode('utf-8'))
 
-            # data2 = self.sock.recv(1024).decode('utf-8')
-            # newdata = json.loads(data2)
-            # print(newdata)
-            # print(json.dumps(newdata, indent=2))
-            # print(json.dumps(data2, indent=2))
+            else:
+                raise socket.error
+            
             
         except socket.error as err:
             print('Socket_ERROR:' + str(err))
@@ -234,7 +220,6 @@ class Tcp_client:
         print('作成したコマンド: ' + cmd)
         return cmd
     
-
     # 動画データを読み込んでサーバに送信する
     def uploadVideo(self):
         with open(self.path, 'rb') as f:
@@ -255,7 +240,14 @@ class Tcp_client:
 
         return data
 
+    def makeJson(self):
+        json_data = {
+            "filename": self.content,
+            "content-type": self.content_madia_type,
+            "content-size": self.content_size
+        }
 
+        return json.dumps(json_data).encode('utf-8')
 
 
 def main():
