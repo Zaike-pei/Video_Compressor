@@ -3,6 +3,7 @@ import json
 import subprocess
 import unicodedata
 import os
+import protocol
 
 # 動画ファイルの左右反転
 #stream = ffmpeg.input('input/test.mp4').hflip().output('output/output.mp4')
@@ -87,22 +88,58 @@ import os
 # for num in list:
 #     print(num)
 
-file_name = 'test.mp4'
+# file_name = 'test.mp4'
 
-file, ext = os.path.splitext(file_name)
-print(file)
+# file, ext = os.path.splitext(file_name)
+# print(file)
 
-print(ext)
+# print(ext)
 
-tmp = ext[1:]
+# tmp = ext[1:]
 
-print(tmp)
+# print(tmp)
 
 
-json_data = {
-    "filename": content,
-    "content-type": content_madia_type,
-    "content-size": content_size,
-    "state-code": 1,
-    "error-message": ''
-}
+# json_data = protocol.make_json("fdsafdsafdsafdafdsfsfsa", "mp4", 1, "hellooooooooooooooooooooooooo", '')
+# type = 'mp4'
+# content_size = 100000
+
+# data = protocol.protocol_media_header(json_data, type, content_size)
+
+# print(data)
+
+# print(protocol.get_json_size(data))
+# print(protocol.get_media_type_size(data))
+# print(protocol.get_payload_size(data))
+
+s = 'abcdefgabczzzz'
+target = 'abc'
+
+print(s[s.rfind(target) + len(target):])
+
+# idx1 = s.find(target)
+# idx2 = s.rfind(target)
+# print(idx1)
+# print(idx2)
+# r = s[idx1+len(target):]
+
+# print(r)
+
+# print(json_data)
+# print(len(json.dumps(json_data)))
+
+# ljust_json = protocol.ljust_replace_space(json.dumps(json_data), json.dumps(json_data).encode('utf-8'), 100)
+# print(len(ljust_json))
+
+# back_json = json.loads(ljust_json)
+# print(back_json)
+
+# print(len(json.dumps(back_json)))
+
+# json_data = {
+#     "filename": content,
+#     "content-type": content_madia_type,
+#     "content-size": content_size,
+#     "state-code": 1,
+#     "error-message": ''
+# }
