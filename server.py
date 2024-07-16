@@ -42,7 +42,27 @@ class Tcp_server:
                     #ヘッダデータを受信
                     header = connection.recv(self.buffer_size)
                     if header != 0:
-                        self.data_size = int.from_bytes(header, 'big')
+                        self.state = 1
+                        # jsonサイズ、メディアタイプサイズ、ペイロードサイズのをヘッダから取得
+                        json_size = protocol.get_json_size(header)
+                        media_type_size = protocol.get_media_type_size(header)
+                        self.data_size = protocol.get_payload_size(header)
+
+                        print('json_size: ' + str(json_size) + ' bytes')
+                        print('media_type_size: ' + str(media_type_size) + ' bytes')
+                        print('payload_size: ' + str(self.data_size) + ' bytes')
+                        # ヘッダ取得完了のレスポンスを返す
+                        connection.send(protocol.response_protocol(self.state, 'recieved header'))
+
+                        # jsonデータの受信
+                        json_data = connection.recv(json_size)
+                        print(json.loads(json_data.decode('utf-8')))
+                        # メディアタイプデータの受信
+                        media_type = connection.recv(media_type_size)
+                        print(media_type.decode('utf-8'))
+                        # エラースロー
+                        #raise Exception
+
                         # 動画データを受信
                         self.recievData(connection, dpath)
                         # 受信終了後メッセージの送信
@@ -50,30 +70,18 @@ class Tcp_server:
                         if self.state == 1:
                             response = protocol.response_protocol(self.state, 'recieved data')
                         else:
-                            response = protocol.response_protocol(self.state, 'failed')
+                            response = protocol.response_protocol(self.state, 'failed upload')
                             
                         connection.send(response)
+                        print('hello')
 
+                        # ステートがエラーだった場合処理終了
 
-                        # json、ヘッダーの作成
-
-
-                        # jsonの作成
-
+                    else:
+                        self.state = 0
+                        connection.send(protocol.response_protocol(self.state, 'error'))
 
                     break
-
-                    # テスト用
-                    # json_data = connection.recv(19).decode('utf-8')
-                    # print(len(json_data))
-                    # json_data += connection.recv(1).decode('utf-8')
-                    # print(json.dumps(json.loads(json_data), indent=4))
-                    # data = {
-                    #     "name": 'hinako',
-                    #     "age": 3
-                    # }
-                    # connection.send(json.dumps(data).encode('utf-8'))
-                    #break
                     
             except Exception as err:
                 print('[TCP]Error:' + str(err))
@@ -81,35 +89,32 @@ class Tcp_server:
                 print('[TCP]closing socket')
                 connection.close()
 
+
     # 動画データを受信し、tempフォルダー内に新しい動画ファイルを作成する
     def recievData(self, con, path):
+        flag = True
         with open(os.path.join(path, 'recv.mp4'), 'wb+') as f:
             while self.data_size > 0:
                 data = con.recv(self.data_size if self.data_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
-                print('recieved {} bytes'.format(len(data)))
+                #print('recieved {} bytes'.format(len(data)))
                 self.data_size -= len(data)
-                print('rest bytes:' + str(self.data_size) + ' bytes')
+                #print('rest bytes:' + str(self.data_size) + ' bytes')
 
+                # 受信するべきデータがまだ残っている且つ受信データが無い場合処理中断
+                if len(data) == 0 and self.data_size > 0:
+                    print('接続の問題によりクライアントからの受信データがないため受信待ちを終了します。')
+                    flag = False
+                    break
+
+        if flag:
             print('Finished download the file from client')
             self.state = 1
+        else:
+            print('動画ダウンロード中にエラーが発生しました。')
+            self.state = 0
+            
         
-
-    # jsonの作成
-    def makeJson(self):
-        json_data = {
-            "filename": self.content,
-            "content-type": self.content_madia_type,
-            "content-size": self.content_size
-        }
-
-        return json.dumps(json_data).encode('utf-8')
-
-
-
-    
-    # def json_test(self):
-    #     print('hello')
 
 def main():
     tcp = Tcp_server()

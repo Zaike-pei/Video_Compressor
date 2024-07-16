@@ -18,7 +18,7 @@ class Tcp_client:
         self.path = '' # ファイルパス
         self.content = '' # ファイル名
         self.content_size = 0 # ファイルサイズ
-        self.content_madia_type = '' # メディアタイプ
+        self.content_type = '' # メディアタイプ
     
     def start(self):
         try:
@@ -28,33 +28,47 @@ class Tcp_client:
             # ファイル名とサイズの取得
             self.getFileInfo()
 
-            # ヘッダの作成と送信
-            header = protocol.prptocol_header(self.content_size)
+            # コマンドを作成
+            command = self.createCommand()
+
+            # jsonの作成とヘッダの作成
+            json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
+            header = protocol.protocol_media_header(json_data, self.content_type, self.content_size)
+
+
+            # ヘッダの送信
             self.sock.send(header)
-            # 動画データの送信
-            self.uploadVideo()
-            # 完了メッセージを受信
-            recv_data = self.sock.recv(16)
-            self.state = protocol.get_state(recv_data)
-            print('[server]:' + protocol.get_message(recv_data))
-            # 正常に動画を送信できた場合の処理
-            if self.state == 1:
-                print('hello')
-                # コマンドの作成
-                
-
-
-
-
-
+            # サーバの応答受信
+            response = self.sock.recv(self.buffer_size)
+            print('[server]' + protocol.get_message(response))
+            # サーバからヘッダ受信の旨のレスポンスを受け取ったら
+            if protocol.get_state(response) == 1:
+                # jsonファイルの送信
+                self.sock.send(json_data.encode('utf-8'))
+                # メディアタイプの送信
+                self.sock.send(self.content_type.encode('utf-8'))
+                # 動画データの送信
+                self.uploadVideo()
+                # 完了メッセージを受信
+                recv_data = self.sock.recv(16)
+                self.state = protocol.get_state(recv_data)
+                print('[server]:' + protocol.get_message(recv_data))
+                # 正常に動画を送信できた場合の処理
+                if self.state == 1:
+                    print('hello')
+                    # コマンドの作成
+                    
+                else:
+                    raise socket.error
+            
             else:
-                raise socket.error
+                raise Exception
             
             
         except socket.error as err:
             print('Socket_ERROR:' + str(err))
             print('プログラムを終了します')
-            sys.exit(1)
+
         except Exception as err:
             print('ERROR:' + str(err))
             print('エラーが発生したためプログラムを終了します。')
@@ -84,7 +98,7 @@ class Tcp_client:
             if os.path.exists(path):
                 # mp4ファイルであるかの確認
                 if ext == '.mp4':
-                    self.content_madia_type = ext[1:]
+                    self.content_type = ext[1:]
                     temp = path
                     break
                 else:
@@ -98,7 +112,7 @@ class Tcp_client:
     def createCommand(self):
         # パスからファイル名を取得
         file, ext = os.path.splitext(self.content)
-        cmd = 'ffmpeg -i ' + self.path
+        cmd = 'ffmpeg -i temp/recv.mp4'
         # ナビゲーションによりコマンドを作成
         while True:
             process_code = unicodedata.normalize('NFKC', input('処理の選択を行います。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
@@ -106,7 +120,7 @@ class Tcp_client:
                                 '指定した動画に対して、行いたい処理を番号で入力してください: '))
             # 圧縮
             if process_code == '1':
-                cmd += ' -crf 28 output/comp_' + file + '.mp4'
+                cmd += ' -crf 28 temp/comp_' + file + '.mp4'
                 break
             # 解像度の変更
             elif process_code == '2':
@@ -160,7 +174,7 @@ class Tcp_client:
                     else:
                         print('[error]適応させたい解像度の番号を入力してください。')
                         print('---------------------------------------------------------')    
-                cmd += 'output/changeQuality_' + file + '.mp4'
+                cmd += 'temp/changeQuality_' + file + '.mp4'
                 print('解像度を決定しました')
                 break
             # アスペクト比の変更
@@ -184,12 +198,12 @@ class Tcp_client:
                     else:
                         print('[error]適応したいアスペクト比の番号で入力してください。')
                         print('-----------------------------------------------------------')
-                cmd += 'output/changeAspect_' + file + '.mp4'
+                cmd += 'temp/changeAspect_' + file + '.mp4'
                 print('アスペクト比を決定しました')
                 break
             #  音声データ(mp3)の抽出
             elif process_code == '4':
-                cmd += ' -ab 256k output/' + file + '.mp3'
+                cmd += ' -ab 256k temp/' + file + '.mp3'
                 break
             # gif ファイルの作成
             elif process_code == '5':
@@ -208,7 +222,7 @@ class Tcp_client:
                         print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
                         print('--------------------------------------------------------------------------------')
 
-                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 output/' + file + '.gif'
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/' + file + '.gif'
                 break
             # 動画ファイルの情報表示（未実装）
             elif process_code == '6':
@@ -224,8 +238,8 @@ class Tcp_client:
     def uploadVideo(self):
         with open(self.path, 'rb') as f:
             data = f.read(self.stream_rate)
+            print('Sending...')
             while data:
-                print('Sending...')
                 self.sock.send(data)
                 data = f.read(self.stream_rate)
                 
@@ -240,14 +254,6 @@ class Tcp_client:
 
         return data
 
-    def makeJson(self):
-        json_data = {
-            "filename": self.content,
-            "content-type": self.content_madia_type,
-            "content-size": self.content_size
-        }
-
-        return json.dumps(json_data).encode('utf-8')
 
 
 def main():
