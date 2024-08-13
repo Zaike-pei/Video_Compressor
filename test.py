@@ -4,6 +4,41 @@ import subprocess
 import unicodedata
 import os
 import protocol
+import time
+
+
+# 非同期処理
+import asyncio
+
+# async def normal(sec):
+#     print(f'{sec}秒待ちます')
+#     loop = asyncio.get_running_loop()
+#     await loop.run_in_executor(None, time.sleep, sec)
+#     print(f'{sec}秒待機しました')
+
+# async def func_1(sec):
+#     print(f"{sec}秒待ちます")
+#     await asyncio.sleep(sec)
+#     return f"{sec}秒の待機に成功しました"
+
+
+
+
+async def main():
+    print(f"main開始 {time.strftime('%X')}")
+
+    results = await asyncio.gather(normal(3), func_1(2))
+    print(results)
+
+    print(f"main終了 {time.strftime('%X')}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+
+
+
+
 
 # 動画ファイルの左右反転
 #stream = ffmpeg.input('input/test.mp4').hflip().output('output/output.mp4')
@@ -112,10 +147,10 @@ import protocol
 # print(protocol.get_media_type_size(data))
 # print(protocol.get_payload_size(data))
 
-s = 'abcdefgabczzzz'
-target = 'abc'
+# s = 'abcdefgabczzzz'
+# target = 'abc'
 
-print(s[s.rfind(target) + len(target):])
+# print(s[s.rfind(target) + len(target):])
 
 # idx1 = s.find(target)
 # idx2 = s.rfind(target)
@@ -143,3 +178,18 @@ print(s[s.rfind(target) + len(target):])
 #     "state-code": 1,
 #     "error-message": ''
 # }
+
+
+# for i in range(1, 5):
+#     print(i)
+#     time.sleep(2)
+
+# x = 1
+# while True:
+#     print(x)
+#     time.sleep(4)
+    
+#     if x == 10:
+#         break
+
+#     x += 1

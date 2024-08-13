@@ -35,7 +35,6 @@ class Tcp_client:
             json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
             header = protocol.protocol_media_header(json_data, self.content_type, self.content_size)
 
-
             # ヘッダの送信
             self.sock.send(header)
             # サーバの応答受信
@@ -55,11 +54,12 @@ class Tcp_client:
                 print('[server]:' + protocol.get_message(recv_data))
                 # 正常に動画を送信できた場合の処理
                 if self.state == 1:
-                    print('hello')
-                    # コマンドの作成
+                    
+                    print('ただいま動画ファイルをサーバーで処理しています。しばらくお待ちください。')
+                     
                     
                 else:
-                    raise socket.error
+                    raise Exception
             
             else:
                 raise Exception
@@ -243,16 +243,8 @@ class Tcp_client:
                 self.sock.send(data)
                 data = f.read(self.stream_rate)
                 
+    
 
-    def json_test(self):
-        data = {
-            "foo": 1,
-            "bar": 2
-        }
-
-        print(len(data))
-
-        return data
 
 
 

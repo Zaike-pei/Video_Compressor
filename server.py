@@ -6,6 +6,7 @@ import datetime
 import os
 import json
 import protocol
+import subprocess
 
 
 class Tcp_server:
@@ -19,15 +20,19 @@ class Tcp_server:
         self.data_size = 0
         self.state = 0
 
+        self.media_type = ''
+        self.json_data = ''
+
+
+
         self.sock.bind((self.server_address, self.server_port))
         print('[TCP]Starting up on {} port {}'.format(self.server_address,self.server_port))
         self.sock.listen(1)
     
     def start(self):
         # ダウンロード済みの動画を保存するディレクトリの作成
-        dpath = 'temp'
-        if not os.path.exists(dpath):
-            os.makedirs(dpath)
+        if not os.path.exists('temp'):
+            os.makedirs('temp')
 
         while True:
             connection, address = self.sock.accept()
@@ -54,34 +59,53 @@ class Tcp_server:
                         # ヘッダ取得完了のレスポンスを返す
                         connection.send(protocol.response_protocol(self.state, 'recieved header'))
 
-                        # jsonデータの受信
-                        json_data = connection.recv(json_size)
-                        print(json.loads(json_data.decode('utf-8')))
-                        # メディアタイプデータの受信
-                        media_type = connection.recv(media_type_size)
-                        print(media_type.decode('utf-8'))
-                        # エラースロー
-                        #raise Exception
+                        # データを受信
+                        self.recievData(connection, json_size, media_type_size)
 
-                        # 動画データを受信
-                        self.recievData(connection, dpath)
                         # 受信終了後メッセージの送信
                         response = ''
                         if self.state == 1:
                             response = protocol.response_protocol(self.state, 'recieved data')
+                            connection.send(response)
+
+                            # jsonデータを展開
+                            self.json_data = json.loads(self.json_data.decode('utf-8'))
+                            fname = self.json_data['filename']
+                            con_type = self.json_data['content-type']
+                            state = self.json_data['state']
+                            command = self.json_data['command']
+
+
+                            print('ここから受信したjsonの情報を表示')    
+                            print('ファイル名： ' + str(fname))
+                            print('コンテントタイプ： ' + str(con_type))
+                            print('ステート： ' + str(state))
+                            print('ffmpegコマンド： ' + str(command))
+
+                            # 圧縮後のファイル名取得
+                            target = 'temp/'
+                            filename = command[command.rfind(target) + len(target):]
+                            print('編集後のファイル名： ' + str(filename))
+
+                            # 動画データの編集（ffmpeg）
+                            subprocess.call(command.split())
+
+
+                            
                         else:
                             response = protocol.response_protocol(self.state, 'failed upload')
+                            connection.send(response)
                             
-                        connection.send(response)
-                        print('hello')
+
+                        break
 
                         # ステートがエラーだった場合処理終了
-
+                    # ヘッダ情報を受信できなかった場合のエラー
                     else:
                         self.state = 0
                         connection.send(protocol.response_protocol(self.state, 'error'))
+                        raise Exception
 
-                    break
                     
             except Exception as err:
                 print('[TCP]Error:' + str(err))
@@ -91,9 +115,16 @@ class Tcp_server:
 
 
     # 動画データを受信し、tempフォルダー内に新しい動画ファイルを作成する
-    def recievData(self, con, path):
+    def recievData(self, con, json_size, media_type_size):
+        # jsonデータの受信
+        self.json_data = con.recv(json_size)
+        print(json.loads(self.json_data.decode('utf-8')))
+        # メディアタイプデータの受信
+        self.media_type = con.recv(media_type_size)
+        print(self.media_type.decode('utf-8'))
+        # 動画データにダウンロード
         flag = True
-        with open(os.path.join(path, 'recv.mp4'), 'wb+') as f:
+        with open('temp/recv.mp4', 'wb+') as f:
             while self.data_size > 0:
                 data = con.recv(self.data_size if self.data_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
@@ -121,7 +152,6 @@ def main():
 
     # tcpサーバー起動
     thread1 = threading.Thread(target=tcp.start)
-
     thread1.start()
 
 if __name__ == '__main__':
