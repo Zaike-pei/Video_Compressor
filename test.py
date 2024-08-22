@@ -10,31 +10,29 @@ import time
 # 非同期処理
 import asyncio
 
-# async def normal(sec):
-#     print(f'{sec}秒待ちます')
-#     loop = asyncio.get_running_loop()
-#     await loop.run_in_executor(None, time.sleep, sec)
-#     print(f'{sec}秒待機しました')
+async def run_command():
+    # サブプロセスを非同期で実行
+    command = 'ffmpeg -i temp/recv.mp4 -crf 28 temp/comp_cut_gopro.mp4'
+    process = await asyncio.create_subprocess_exec(
+        'ffmpeg', '-i','input/cut_gopro.mp4', '-crf', '28', 'temp/comp_cut_gopro.mp4',           # コマンドと引数
+        stdout=asyncio.subprocess.PIPE,  # 標準出力をキャプチャ
+        stderr=asyncio.subprocess.PIPE   # 標準エラー出力をキャプチャ
+    )
 
-# async def func_1(sec):
-#     print(f"{sec}秒待ちます")
-#     await asyncio.sleep(sec)
-#     return f"{sec}秒の待機に成功しました"
+    # サブプロセスの出力を待機
+    stdout, stderr = await process.communicate()
+
+    # サブプロセスの終了コードを取得
+    returncode = await process.wait()
+
+    # 出力結果の表示
+    print(f'[{returncode}]')
+    print(f'[stdout]\n{stdout.decode()}')
+    print(f'[stderr]\n{stderr.decode()}')
+
+asyncio.run(run_command())
 
 
-
-
-async def main():
-    print(f"main開始 {time.strftime('%X')}")
-
-    results = await asyncio.gather(normal(3), func_1(2))
-    print(results)
-
-    print(f"main終了 {time.strftime('%X')}")
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
 
 
 

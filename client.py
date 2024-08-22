@@ -4,6 +4,7 @@ import os
 import unicodedata
 import protocol
 import json
+import asyncio
 
 
 class Tcp_client:
@@ -27,14 +28,11 @@ class Tcp_client:
 
             # ファイル名とサイズの取得
             self.getFileInfo()
-
             # コマンドを作成
             command = self.createCommand()
-
             # jsonの作成とヘッダの作成
             json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
             header = protocol.protocol_media_header(json_data, self.content_type, self.content_size)
-
             # ヘッダの送信
             self.sock.send(header)
             # サーバの応答受信
@@ -42,12 +40,8 @@ class Tcp_client:
             print('[server]' + protocol.get_message(response))
             # サーバからヘッダ受信の旨のレスポンスを受け取ったら
             if protocol.get_state(response) == 1:
-                # jsonファイルの送信
-                self.sock.send(json_data.encode('utf-8'))
-                # メディアタイプの送信
-                self.sock.send(self.content_type.encode('utf-8'))
-                # 動画データの送信
-                self.uploadVideo()
+                # json, content-type, 動画データの送信
+                self.uploadData(json_data)
                 # 完了メッセージを受信
                 recv_data = self.sock.recv(16)
                 self.state = protocol.get_state(recv_data)
@@ -64,7 +58,6 @@ class Tcp_client:
             else:
                 raise Exception
             
-            
         except socket.error as err:
             print('Socket_ERROR:' + str(err))
             print('プログラムを終了します')
@@ -78,7 +71,7 @@ class Tcp_client:
             self.sock.close()
 
 
-    # アップロードしたい動画ファイル名とサイズの取得
+    # 動画ファイル名とサイズの取得
     def getFileInfo(self):
         while True:
             self.path = self.checkFileType()
@@ -234,10 +227,16 @@ class Tcp_client:
         print('作成したコマンド: ' + cmd)
         return cmd
     
-    # 動画データを読み込んでサーバに送信する
-    def uploadVideo(self):
+    # データをサーバに送信する
+    def uploadData(self, json):
+        # jsonファイルの送信
+        self.sock.send(json.encode('utf-8'))
+        # メディアタイプの送信
+        self.sock.send(self.content_type.encode('utf-8'))
+        # 動画データの送信
         with open(self.path, 'rb') as f:
             data = f.read(self.stream_rate)
+            print('指定した動画データの送信を開始します。')
             print('Sending...')
             while data:
                 self.sock.send(data)
@@ -245,13 +244,9 @@ class Tcp_client:
                 
     
 
-
-
-
 def main():
     tcp_client = Tcp_client()
     tcp_client.start()
-
 
 
 if __name__ == '__main__':
