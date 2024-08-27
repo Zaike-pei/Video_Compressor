@@ -29,9 +29,9 @@ class Tcp_server:
         self.sock.listen(1)
     
     def start_thread(self):
-        asyncio.run(self.start_server())
+        asyncio.run(self._start_server())
 
-    async def start_server(self):
+    async def _start_server(self):
         # ダウンロード済みの動画を保存するディレクトリの作成
         if not os.path.exists('temp'):
             os.makedirs('temp')
@@ -59,7 +59,7 @@ class Tcp_server:
                         connection.send(protocol.response_protocol(self.state, 'recieved header'))
 
                         # データを受信
-                        self.recievData(connection, json_size, media_type_size)
+                        self._recievData(connection, json_size, media_type_size)
 
                         # 受信終了後メッセージの送信
                         response = ''
@@ -73,11 +73,14 @@ class Tcp_server:
                             # con_type = self.json_data['content-type']
                             # state = self.json_data['state']
                             command = self.json_data['command']
-                            print(command)
+                            print(f'コマンド: {command}')
 
                             # 動画編集とクライアントへのメッセージ送信
-                            tasks = [asyncio.create_task(self.video_Editing(command)), asyncio.create_task(self.wait_loop())]
+                            tasks = [asyncio.create_task(self._video_Editing(command)), asyncio.create_task(self._wait_loop())]
                             done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                            # 動作しているタスクのキャンセル
+                            for task in tasks:
+                                task.cancel()
 
 
                             print('動画編集処理完了')
@@ -105,7 +108,7 @@ class Tcp_server:
 
 
     # 動画データを受信し、tempフォルダー内に新しい動画ファイルを作成する
-    def recievData(self, con, json_size, media_type_size):
+    def _recievData(self, con: socket, json_size: int, media_type_size: int) -> None:
         # jsonデータの受信
         json_data = con.recv(json_size)
         self.json_data = json.loads(json_data.decode('utf-8'))
@@ -137,7 +140,7 @@ class Tcp_server:
             self.state = 0
             
     # 動画ファイル編集
-    async def video_Editing(self, command):
+    async def _video_Editing(self, command:str) -> None:
         # 圧縮後のファイル名取得
         target = 'temp/'
         filename = command[command.rfind(target) + len(target):]
@@ -145,18 +148,29 @@ class Tcp_server:
 
         print('動画編集を開始')
         # 動画データの編集（ffmpeg）
-        await subprocess.call(command.split())
+        proc = await asyncio.create_subprocess_exec(
+            *command.split(' '),
+            stdout = asyncio.subprocess.PIPE, # 標準出力のキャプチャ用
+            stderr= asyncio.subprocess.PIPE  # 標準エラー出力のキャプチャ用
+        )
+        # バッファリング防止
+        await proc.communicate()
+        # サブプロセスの終了コードを取得
+        returncode = await proc.wait()
+        # 出力結果の表示
+        print(f'結果コード: {returncode}')
+
+
         print('動画編集終了')
 
-        print('コマンド実行完了')
 
         
     # 処理待機用関数
-    async def wait_loop(self):
+    async def _wait_loop(self) -> None:
         while True:
-            print('動画処理の終了待機します。')
-            await asyncio.sleep(5)
-            print('待機完了')
+            print('動画編集中のため終了待機します。')
+            await asyncio.sleep(15)
+            print('待機時間終了')
 
 
 
