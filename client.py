@@ -27,9 +27,9 @@ class Tcp_client:
             print('connection server_address: {} server_port: {}'.format(self.server_address, self.server_port))
 
             # ファイル名とサイズの取得
-            self.getFileInfo()
+            self._getFileInfo()
             # コマンドを作成
-            command = self.createCommand()
+            command = self._createCommand()
             # jsonの作成とヘッダの作成
             json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
             header = protocol.protocol_media_header(json_data, self.content_type, self.content_size)
@@ -41,7 +41,7 @@ class Tcp_client:
             # サーバからヘッダ受信の旨のレスポンスを受け取ったら
             if protocol.get_state(response) == 1:
                 # json, content-type, 動画データの送信
-                self.uploadData(json_data)
+                self._uploadData(json_data)
                 # 完了メッセージを受信
                 recv_data = self.sock.recv(16)
                 self.state = protocol.get_state(recv_data)
@@ -72,16 +72,16 @@ class Tcp_client:
 
 
     # 動画ファイル名とサイズの取得
-    def getFileInfo(self):
+    def _getFileInfo(self) -> None:
         while True:
-            self.path = self.checkFileType()
+            self.path = self._checkFileType()
             # ファイルサイズの確認
             if protocol.fileSize_Check(os.path.getsize(self.path)):
                 self.content_size = os.path.getsize(self.path)
                 break
 
     # ファイルの存在確認とmp4ファイルであるかの判定
-    def checkFileType(self):
+    def _checkFileType(self) -> str:
         temp = ''
         while True:
             self.content = input('type in mp4 file to upload to server:')
@@ -102,7 +102,7 @@ class Tcp_client:
         return temp
                 
     # ffmpegのコマンドを作成
-    def createCommand(self):
+    def _createCommand(self) -> str:
         # パスからファイル名を取得
         file, ext = os.path.splitext(self.content)
         cmd = 'ffmpeg -i temp/recv.mp4'
@@ -228,7 +228,7 @@ class Tcp_client:
         return cmd
     
     # データをサーバに送信する
-    def uploadData(self, json):
+    def _uploadData(self, json: dict) -> None:
         # jsonファイルの送信
         self.sock.send(json.encode('utf-8'))
         # メディアタイプの送信
