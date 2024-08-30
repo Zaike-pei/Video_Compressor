@@ -6,6 +6,8 @@ import datetime
 import os
 import json
 import protocol
+import subprocess
+import asyncio
 
 
 class Tcp_server:
@@ -13,23 +15,30 @@ class Tcp_server:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_address = '0.0.0.0'
         self.server_port = 9001
-        self.buffer_size = 32
+        self.header_buffer_size = 32
+        self.response_buffer_size = 16
         self.stream_rate = 1400
 
         self.data_size = 0
         self.state = 0
+        self.media_type = ''
+        self.json_data = ''
 
         self.sock.bind((self.server_address, self.server_port))
         print('[TCP]Starting up on {} port {}'.format(self.server_address,self.server_port))
         self.sock.listen(1)
     
-    def start(self):
+
+    def start_thread(self):
+        asyncio.run(self._start_server())
+
+    async def _start_server(self):
         # ダウンロード済みの動画を保存するディレクトリの作成
-        dpath = 'temp'
-        if not os.path.exists(dpath):
-            os.makedirs(dpath)
+        if not os.path.exists('temp'):
+            os.makedirs('temp')
 
         while True:
+            print('[TCP]Waiting for connection...')
             connection, address = self.sock.accept()
             
             try:
@@ -40,66 +49,115 @@ class Tcp_server:
                     print('[TCP]connecting from {} {}'.format(address, now.strftime('%Y/%m/%d %H:%M:%S')))
 
                     #ヘッダデータを受信
-                    header = connection.recv(self.buffer_size)
-                    if header != 0:
-                        self.state = 1
-                        # jsonサイズ、メディアタイプサイズ、ペイロードサイズのをヘッダから取得
-                        json_size = protocol.get_json_size(header)
-                        media_type_size = protocol.get_media_type_size(header)
-                        self.data_size = protocol.get_payload_size(header)
+                    header = connection.recv(self.header_buffer_size)
 
-                        print('json_size: ' + str(json_size) + ' bytes')
-                        print('media_type_size: ' + str(media_type_size) + ' bytes')
-                        print('payload_size: ' + str(self.data_size) + ' bytes')
-                        # ヘッダ取得完了のレスポンスを返す
-                        connection.send(protocol.response_protocol(self.state, 'recieved header'))
-
-                        # jsonデータの受信
-                        json_data = connection.recv(json_size)
-                        print(json.loads(json_data.decode('utf-8')))
-                        # メディアタイプデータの受信
-                        media_type = connection.recv(media_type_size)
-                        print(media_type.decode('utf-8'))
-                        # エラースロー
-                        #raise Exception
-
-                        # 動画データを受信
-                        self.recievData(connection, dpath)
-                        # 受信終了後メッセージの送信
-                        response = ''
-                        if self.state == 1:
-                            response = protocol.response_protocol(self.state, 'recieved data')
-                        else:
-                            response = protocol.response_protocol(self.state, 'failed upload')
-                            
-                        connection.send(response)
-                        print('hello')
-
-                        # ステートがエラーだった場合処理終了
-
-                    else:
-                        self.state = 0
-                        connection.send(protocol.response_protocol(self.state, 'error'))
-
-                    break
+                    # ヘッダデータが存在しない場合
+                    if header == b'':
+                        connection.send(protocol.response_protocol(2, 'error'))
+                        raise Exception('ヘッダー受信シーケンスでエラーが発生しました。')
                     
+                    # データサイズをヘッダから取得
+                    json_size = protocol.get_json_size(header)
+                    media_type_size = protocol.get_media_type_size(header)
+                    self.data_size = protocol.get_payload_size(header)
+
+                    # ヘッダ取得完了のレスポンスを返す
+                    connection.send(protocol.response_protocol(1, 'recieved header'))
+                    # データを受信
+                    self._recievData(connection, json_size, media_type_size)
+
+                    # データ受信段階でエラーコードだった場合
+                    if self.state != 1:
+                        connection.send(protocol.response_protocol(2, 'failed upload'))
+                        raise Exception('データ受信シーケンスでエラーが発生しました。')
+                        
+                    connection.send(protocol.response_protocol(1, 'recieved data'))
+                    
+                    # ここでコマンドのファイル項を書き換えたい
+
+                    command = self.json_data['command']
+                    #print(f'コマンド: {command}')
+
+
+                    # 動画編集とクライアントへのメッセージ送信
+                    tasks = [asyncio.create_task(self._video_Editing(command)), asyncio.create_task(self._send_message_loop(connection))]
+                    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                    # 結果をレスポンスする
+                    for task in done:
+                        # 動画編集段階でエラーコードの場合 
+                        if task.result() != 0:
+                            connection.send(protocol.response_protocol(2, 'error'))
+                            raise Exception('動画編集シーケンスでエラーが発生しました。')
+                            
+                        connection.send(protocol.response_protocol(1, 'done'))
+
+                    # 動作しているタスクのキャンセル
+                    for task in tasks:
+                        task.cancel()
+
+
+                    # 編集後のファイル名取得
+                    filename = self._getFileName(command)
+                    # 送信するファイルのサイズとメディアタイプ情報を設定
+                    self._setFileInfo(filename)
+                    # jsonの作成とヘッダの作成
+                    json_data = protocol.make_json(filename, self.media_type, 1, '', '')
+ 
+                    header = protocol.protocol_media_header(json_data, self.media_type, self.data_size)
+                    #　ヘッダーの送信
+                    connection.send(header)
+                    # クライアントの応答受信
+                    response = connection.recv(self.response_buffer_size)
+
+                    print(f'[Client]{protocol.get_message(response)}')
+
+                    # ヘッダー送受信でのエラーの場合
+                    if protocol.get_state(response) != 1:
+                        raise Exception('ヘッダー送信シーケンスでエラーが発生しました。')
+                    
+                    # データを送信
+                    self._uploadData(connection, filename, json_data)
+
+                    # クライアントがデータを受信できたかの確認をするレスポンスを受け取る
+                    response = connection.recv(self.response_buffer_size)
+
+                    # クライアント側でダウンロードエラーがあった場合
+                    if protocol.get_state(response) != 1:
+                        print('クライアントがデータ受信段階においてエラーが発生しています。')
+                        raise Exception('クライアント側で受信エラーが発生しました。接続を閉じます。')
+                    
+                    # サーバーにダウンロードしたファイルを削除する
+                    self._removeSpecifyData(filename)
+
+                    print('[TCP]disconnecting from {} {}'.format(address, now.strftime('%Y/%m/%d %H:%M:%S')))
+                    break
+
+                    # リセット
+
+
+
             except Exception as err:
-                print('[TCP]Error:' + str(err))
+                print(f'[TCP]Error: {str(err)}')
             finally:
                 print('[TCP]closing socket')
                 connection.close()
 
 
-    # 動画データを受信し、tempフォルダー内に新しい動画ファイルを作成する
-    def recievData(self, con, path):
+    # データ受信処理
+    def _recievData(self, con: socket, json_size: int, media_type_size: int) -> None:
+        # jsonデータの受信
+        json_data = protocol.remove_padding(con.recv(json_size))
+        self.json_data = json.loads(json_data.decode('utf-8'))
+
+        # メディアタイプデータの受信
+        self.media_type = con.recv(media_type_size)
+        # 動画データをダウンロード
         flag = True
-        with open(os.path.join(path, 'recv.mp4'), 'wb+') as f:
+        with open('temp/recv.mp4', 'wb+') as f:
             while self.data_size > 0:
                 data = con.recv(self.data_size if self.data_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
-                #print('recieved {} bytes'.format(len(data)))
                 self.data_size -= len(data)
-                #print('rest bytes:' + str(self.data_size) + ' bytes')
 
                 # 受信するべきデータがまだ残っている且つ受信データが無い場合処理中断
                 if len(data) == 0 and self.data_size > 0:
@@ -107,6 +165,7 @@ class Tcp_server:
                     flag = False
                     break
 
+        # ダウンロード結果をフラッグで判定
         if flag:
             print('Finished download the file from client')
             self.state = 1
@@ -114,15 +173,88 @@ class Tcp_server:
             print('動画ダウンロード中にエラーが発生しました。')
             self.state = 0
             
+    # データ送信
+    def _uploadData(self, con: socket, filename: str, json: str) -> None:
+        print('データの送信を開始します。')
+        # jsonデータの送信
+        con.send(protocol.ljust_replace_padding(json ,100))
+        # メディアタイプの送信
+        con.send(self.media_type.encode('utf-8'))
+        # 動画データの送信
+        with open('temp/' + filename, 'rb') as f:
+            data = f.read(self.stream_rate)
+            print('指定した動画データの送信を開始します。')
+            print('Sending...')
+            while data:
+                con.send(data)
+                data = f.read(self.stream_rate)
+
+    # 動画ファイル編集（ffmpeg）
+    async def _video_Editing(self, command:str) -> int:
+        # サブプロセス実行
+        print('動画データの編集を開始します。')
+        proc = await asyncio.create_subprocess_exec(
+            *command.split(' '),
+            stdout = asyncio.subprocess.PIPE, # 標準出力のキャプチャ用
+            stderr= asyncio.subprocess.PIPE  # 標準エラー出力のキャプチャ用
+        )
+        # バッファリング防止
+        await proc.communicate()
+        # サブプロセスの終了コードを取得
+        returncode = await proc.wait()
+        print('動画データ編集処理終了')
+
+        return returncode
+  
+    # 処理待機用関数
+    async def _send_message_loop(self, con: socket) -> None:
+        while True:
+            print('動画編集中...')
+            con.send(protocol.response_protocol(0, 'Processing...'))
+            await asyncio.sleep(30)
+    
+
+    # ファイル情報のセット
+    def _setFileInfo(self, filename: str) -> None:
+        path = 'temp/' + filename
+        if os.path.exists(path) == False:
+            raise Exception('ファイルが見つかりません。')
         
+        self.media_type = self._getFileType(path)
+        self.data_size = self._getFileSize(path)
+
+    # ファイルタイプの取得
+    def _getFileType(self, path: str) -> str:
+        ext = os.path.splitext(path)[1]
+        return ext[1:]
+    
+    # ファイルサイズの取得
+    def _getFileSize(self, path: str) -> int:
+        size = os.path.getsize(path)
+        return size
+
+    # 編集後のファイル名取得
+    def _getFileName(self, command: str) -> str:
+        # 編集後のファイル名取得
+        target = 'temp/'
+        filename = command[command.rfind(target) + len(target):]
+        print('編集後のファイル名： ' + str(filename))
+        return filename
+
+    # 指定の動画ファイルを削除
+    def _removeSpecifyData(self, filename: str) -> None:
+        os.remove('temp/' + filename)
+
+
+
 
 def main():
     tcp = Tcp_server()
 
     # tcpサーバー起動
-    thread1 = threading.Thread(target=tcp.start)
-
+    thread1 = threading.Thread(target=tcp.start_thread)
     thread1.start()
+
 
 if __name__ == '__main__':
     main()

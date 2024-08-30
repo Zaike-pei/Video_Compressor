@@ -4,6 +4,8 @@ import os
 import unicodedata
 import protocol
 import json
+import asyncio
+import time
 
 
 class Tcp_client:
@@ -11,7 +13,8 @@ class Tcp_client:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_address = 'localhost'
         self.server_port = 9001
-        self.buffer_size = 32
+        self.header_buffer_size = 32
+        self.response_buffer_size = 16
         self.stream_rate = 1400
         self.state = 0
 
@@ -19,6 +22,7 @@ class Tcp_client:
         self.content = '' # ファイル名
         self.content_size = 0 # ファイルサイズ
         self.content_type = '' # メディアタイプ
+        self.json_data = '' # 整形後のjsonを格納
     
     def start(self):
         try:
@@ -26,45 +30,68 @@ class Tcp_client:
             print('connection server_address: {} server_port: {}'.format(self.server_address, self.server_port))
 
             # ファイル名とサイズの取得
-            self.getFileInfo()
-
+            self._getFileInfo()
             # コマンドを作成
-            command = self.createCommand()
-
+            command = self._createCommand()
             # jsonの作成とヘッダの作成
-            json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
-            header = protocol.protocol_media_header(json_data, self.content_type, self.content_size)
-
-
+            self.json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
+            header = protocol.protocol_media_header(self.json_data, self.content_type, self.content_size)
             # ヘッダの送信
             self.sock.send(header)
             # サーバの応答受信
-            response = self.sock.recv(self.buffer_size)
-            print('[server]' + protocol.get_message(response))
-            # サーバからヘッダ受信の旨のレスポンスを受け取ったら
-            if protocol.get_state(response) == 1:
-                # jsonファイルの送信
-                self.sock.send(json_data.encode('utf-8'))
-                # メディアタイプの送信
-                self.sock.send(self.content_type.encode('utf-8'))
-                # 動画データの送信
-                self.uploadVideo()
-                # 完了メッセージを受信
-                recv_data = self.sock.recv(16)
-                self.state = protocol.get_state(recv_data)
-                print('[server]:' + protocol.get_message(recv_data))
-                # 正常に動画を送信できた場合の処理
-                if self.state == 1:
-                    print('hello')
-                    # コマンドの作成
-                    
-                else:
-                    raise socket.error
+            response = self.sock.recv(self.header_buffer_size)
+            print('[server]:' + protocol.get_message(response))
+
+            # ヘッダー受信段階でエラーコードだった場合
+            if protocol.get_state(response) != 1:
+                raise Exception('ヘッダー送信段階でエラーが発生しました。')
+
+            # データの送信
+            self._uploadData(self.json_data)
+            # 完了メッセージを受信
+            response = self.sock.recv(self.response_buffer_size)
+            self.state = protocol.get_state(response)
+            print('[server]:' + protocol.get_message(response))
+
+            # 動画アップロード段階でエラーコードだった場合
+            if self.state != 1:
+                raise Exception('データ送信段階でエラーが発生しました。')
             
-            else:
-                raise Exception
+            # 動画編集終了まで待機
+            resultCode = self._wait_response_loop(self.sock)
+
+            # サーバーからエラーコードを受信した場合
+            if resultCode != 1:
+                print('サーバーの編集処理中にエラーが発生しました。')
+                raise Exception('サーバーで編集処理中にエラーが発生しました。')
             
+            # ヘッダーの受信
+            header = self.sock.recv(self.header_buffer_size)
+
+            # ヘッダー受信ができなかった場合
+            if header == b'':
+                self.sock.send(protocol.response_protocol(2, 'can`t reciev'))
+                raise Exception('ヘッダーの受信ができませんでした。')
             
+            # データサイズをヘッダから取得
+            json_size = protocol.get_json_size(header)
+            media_type_size = protocol.get_media_type_size(header)
+            self.content_size = protocol.get_payload_size(header) 
+
+            # ヘッダ取得完了のレスポンスを返す
+            self.sock.send(protocol.response_protocol(1, 'recieved header'))
+            # データを受信
+            self._receivData(self.sock, json_size, media_type_size)
+
+            # データ受信段階でエラーコードだった場合
+            if self.state != 1:
+                self.sock.send(protocol.response_protocol(2, 'failed upload'))
+                raise Exception('データダウンロード段階でエラーが発生しました。')
+            
+            self.sock.send(protocol.response_protocol(1, 'completed'))
+
+            print('正常にプログラムが動作しました。プログラムを終了します。')
+                         
         except socket.error as err:
             print('Socket_ERROR:' + str(err))
             print('プログラムを終了します')
@@ -72,23 +99,22 @@ class Tcp_client:
         except Exception as err:
             print('ERROR:' + str(err))
             print('エラーが発生したためプログラムを終了します。')
-            sys.exit(1)
         finally:
             print('closing socket')
             self.sock.close()
 
 
-    # アップロードしたい動画ファイル名とサイズの取得
-    def getFileInfo(self):
+    # 動画ファイル名とサイズの取得
+    def _getFileInfo(self) -> None:
         while True:
-            self.path = self.checkFileType()
+            self.path = self._checkFileType()
             # ファイルサイズの確認
             if protocol.fileSize_Check(os.path.getsize(self.path)):
                 self.content_size = os.path.getsize(self.path)
                 break
 
     # ファイルの存在確認とmp4ファイルであるかの判定
-    def checkFileType(self):
+    def _checkFileType(self) -> str:
         temp = ''
         while True:
             self.content = input('type in mp4 file to upload to server:')
@@ -109,7 +135,7 @@ class Tcp_client:
         return temp
                 
     # ffmpegのコマンドを作成
-    def createCommand(self):
+    def _createCommand(self) -> str:
         # パスからファイル名を取得
         file, ext = os.path.splitext(self.content)
         cmd = 'ffmpeg -i temp/recv.mp4'
@@ -234,32 +260,76 @@ class Tcp_client:
         print('作成したコマンド: ' + cmd)
         return cmd
     
-    # 動画データを読み込んでサーバに送信する
-    def uploadVideo(self):
+    # データをサーバに送信する
+    def _uploadData(self, json: dict) -> None:
+        # jsonデータの送信
+        self.sock.send(json.encode('utf-8'))
+        # メディアタイプの送信
+        self.sock.send(self.content_type.encode('utf-8'))
+        # 動画データの送信
         with open(self.path, 'rb') as f:
             data = f.read(self.stream_rate)
+            print('指定した動画データの送信を開始します。')
             print('Sending...')
             while data:
                 self.sock.send(data)
                 data = f.read(self.stream_rate)
-                
 
-    def json_test(self):
-        data = {
-            "foo": 1,
-            "bar": 2
-        }
+    # 待機用受信ループ
+    def _wait_response_loop(self, con: socket) -> int:
+        print('ただいま動画ファイルをサーバーで処理しています。しばらくお待ちください。')
 
-        print(len(data))
+        while True:
+            recv_data = con.recv(16)
+            state = protocol.get_state(recv_data)
+            message = protocol.get_message(recv_data)
+            print(f'[server]:{message}')
+            if state != 0:
+                break
+            
+            time.sleep(10)
+        return state
 
-        return data
+    # データ受信処理
+    def _receivData(self, con: socket, json_size: int, media_type_size: int) -> None:
+        # jsonデータの受信
+        byte_json_data = protocol.remove_padding(con.recv(json_size))
+        self.json_data = json.loads(byte_json_data.decode('utf-8'))
 
+        # メディアタイプデータの受信
+        self.content_type = con.recv(media_type_size)
+
+        # ダウンロードデータのファイル名を取得
+        filename = self.json_data['filename']
+
+        # 動画データを受信
+        flag = True # 判定用の変数
+        with open('output/' + filename, 'wb+') as f:
+            while self.content_size > 0:
+                data = con.recv(self.content_size if self.content_size <= self.stream_rate else self.stream_rate)
+                f.write(data)
+                #print('recieved {} bytes'.format(len(data)))
+                self.content_size -= len(data)
+                #print('rest bytes:' + str(self.data_size) + ' bytes')
+
+                # 受信するべきデータがまだ残っている且つ受信データが無い場合処理中断
+                if len(data) == 0 and self.content_size > 0:
+                    print('接続の問題によりクライアントからの受信データがないため受信待ちを終了します。')
+                    flag = False
+                    break
+        
+        # ダウンロード結果をフラッグで判定
+        if flag:
+            print('Finished download the file from server')
+            self.state = 1
+        else:
+            print('動画ダウンロード中にエラーが発生しました。')
+            self.state = 2
 
 
 def main():
     tcp_client = Tcp_client()
     tcp_client.start()
-
 
 
 if __name__ == '__main__':

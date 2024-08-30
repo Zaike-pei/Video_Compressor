@@ -4,6 +4,39 @@ import subprocess
 import unicodedata
 import os
 import protocol
+import time
+
+
+# 非同期処理
+import asyncio
+
+async def run_command():
+    # サブプロセスを非同期で実行
+    command = 'ffmpeg -i temp/recv.mp4 -crf 28 temp/comp_cut_gopro.mp4'
+    process = await asyncio.create_subprocess_exec(
+        'ffmpeg', '-i','input/cut_gopro.mp4', '-crf', '28', 'temp/comp_cut_gopro.mp4',           # コマンドと引数
+        stdout=asyncio.subprocess.PIPE,  # 標準出力をキャプチャ
+        stderr=asyncio.subprocess.PIPE   # 標準エラー出力をキャプチャ
+    )
+
+    # サブプロセスの出力を待機
+    stdout, stderr = await process.communicate()
+
+    # サブプロセスの終了コードを取得
+    returncode = await process.wait()
+
+    # 出力結果の表示
+    print(f'[{returncode}]')
+    print(f'[stdout]\n{stdout.decode()}')
+    print(f'[stderr]\n{stderr.decode()}')
+
+asyncio.run(run_command())
+
+
+
+
+
+
 
 # 動画ファイルの左右反転
 #stream = ffmpeg.input('input/test.mp4').hflip().output('output/output.mp4')
@@ -112,10 +145,10 @@ import protocol
 # print(protocol.get_media_type_size(data))
 # print(protocol.get_payload_size(data))
 
-s = 'abcdefgabczzzz'
-target = 'abc'
+# s = 'abcdefgabczzzz'
+# target = 'abc'
 
-print(s[s.rfind(target) + len(target):])
+# print(s[s.rfind(target) + len(target):])
 
 # idx1 = s.find(target)
 # idx2 = s.rfind(target)
@@ -143,3 +176,18 @@ print(s[s.rfind(target) + len(target):])
 #     "state-code": 1,
 #     "error-message": ''
 # }
+
+
+# for i in range(1, 5):
+#     print(i)
+#     time.sleep(2)
+
+# x = 1
+# while True:
+#     print(x)
+#     time.sleep(4)
+    
+#     if x == 10:
+#         break
+
+#     x += 1
