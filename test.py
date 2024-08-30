@@ -10,11 +10,10 @@ import time
 # 非同期処理
 import asyncio
 
-async def run_command():
+async def run_command(command:list[str]) -> None:
     # サブプロセスを非同期で実行
-    command = 'ffmpeg -i temp/recv.mp4 -crf 28 temp/comp_cut_gopro.mp4'
     process = await asyncio.create_subprocess_exec(
-        'ffmpeg', '-i','input/cut_gopro.mp4', '-crf', '28', 'temp/comp_cut_gopro.mp4',           # コマンドと引数
+        *command,
         stdout=asyncio.subprocess.PIPE,  # 標準出力をキャプチャ
         stderr=asyncio.subprocess.PIPE   # 標準エラー出力をキャプチャ
     )
@@ -27,10 +26,15 @@ async def run_command():
 
     # 出力結果の表示
     print(f'[{returncode}]')
-    print(f'[stdout]\n{stdout.decode()}')
-    print(f'[stderr]\n{stderr.decode()}')
+    # print(f'[stdout]\n{stdout.decode()}')
+    # print(f'[stderr]\n{stderr.decode()}')
 
-asyncio.run(run_command())
+
+command = 'ffmpeg -i input/cut_gopro.mp4 -ab 256k temp/cut_gopro.mp3'
+cmdList = command.split(' ')
+asyncio.run(run_command(cmdList))
+
+
 
 
 
