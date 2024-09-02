@@ -23,6 +23,7 @@ class Tcp_server:
         self.state = 0
         self.media_type = ''
         self.json_data = ''
+        self.fileName = ''
 
         self.sock.bind((self.server_address, self.server_port))
         print('[TCP]Starting up on {} port {}'.format(self.server_address,self.server_port))
@@ -51,58 +52,54 @@ class Tcp_server:
                     #ヘッダデータを受信
                     header = connection.recv(self.header_buffer_size)
 
-                    # ヘッダデータが存在しない場合
+                    # ヘッダデータ取得失敗だった場合
                     if header == b'':
                         connection.send(protocol.response_protocol(2, 'error'))
                         raise Exception('ヘッダー受信シーケンスでエラーが発生しました。')
+                    
+                    # ヘッダ取得完了のレスポンスを返す
+                    connection.send(protocol.response_protocol(1, 'recieved header'))
                     
                     # データサイズをヘッダから取得
                     json_size = protocol.get_json_size(header)
                     media_type_size = protocol.get_media_type_size(header)
                     self.data_size = protocol.get_payload_size(header)
-
-                    # ヘッダ取得完了のレスポンスを返す
-                    connection.send(protocol.response_protocol(1, 'recieved header'))
                     # データを受信
                     self._recievData(connection, json_size, media_type_size)
 
-                    # データ受信段階でエラーコードだった場合
+                    # データ取得失敗だった場合
                     if self.state != 1:
                         connection.send(protocol.response_protocol(2, 'failed upload'))
                         raise Exception('データ受信シーケンスでエラーが発生しました。')
-                        
-                    connection.send(protocol.response_protocol(1, 'recieved data'))
                     
-                    # ここでコマンドのファイル項を書き換えたい
-
-                    command = self.json_data['command']
-                    #print(f'コマンド: {command}')
-
+                    # データ取得完了のレスポンスを返す  
+                    connection.send(protocol.response_protocol(1, 'recieved data'))
 
                     # 動画編集とクライアントへのメッセージ送信
-                    tasks = [asyncio.create_task(self._video_Editing(command)), asyncio.create_task(self._send_message_loop(connection))]
+                    tasks = [asyncio.create_task(self._video_Editing(self.json_data['command'])), asyncio.create_task(self._send_message_loop(connection))]
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     # 結果をレスポンスする
                     for task in done:
-                        # 動画編集段階でエラーコードの場合 
+                        # 動画編集処理失敗だった場合 
                         if task.result() != 0:
                             connection.send(protocol.response_protocol(2, 'error'))
                             raise Exception('動画編集シーケンスでエラーが発生しました。')
-                            
+                        # 編集完了のレスポンスを送信
                         connection.send(protocol.response_protocol(1, 'done'))
 
-                    # 動作しているタスクのキャンセル
+                    # タスクのキャンセル
                     for task in tasks:
                         task.cancel()
 
-
+                    # 編集前の動画ファイルを削除
+                    self._removeSpecifyData(self.fileName)
                     # 編集後のファイル名取得
-                    filename = self._getFileName(command)
+                    self.fileName = self._getEditedFileName(self.json_data['command'])
                     # 送信するファイルのサイズとメディアタイプ情報を設定
-                    self._setFileInfo(filename)
-                    # jsonの作成とヘッダの作成
-                    json_data = protocol.make_json(filename, self.media_type, 1, '', '')
- 
+                    self._setFileInfo(self.fileName)
+                    # jsonの作成
+                    json_data = protocol.make_json(self.fileName, self.media_type, 1, '', '')
+                    # ヘッダの作成
                     header = protocol.protocol_media_header(json_data, self.media_type, self.data_size)
                     #　ヘッダーの送信
                     connection.send(header)
@@ -111,12 +108,12 @@ class Tcp_server:
 
                     print(f'[Client]{protocol.get_message(response)}')
 
-                    # ヘッダー送受信でのエラーの場合
+                    # ヘッダーデータ送信失敗だった場合
                     if protocol.get_state(response) != 1:
                         raise Exception('ヘッダー送信シーケンスでエラーが発生しました。')
                     
                     # データを送信
-                    self._uploadData(connection, filename, json_data)
+                    self._uploadData(connection, self.fileName, json_data)
 
                     # クライアントがデータを受信できたかの確認をするレスポンスを受け取る
                     response = connection.recv(self.response_buffer_size)
@@ -127,14 +124,13 @@ class Tcp_server:
                         raise Exception('クライアント側で受信エラーが発生しました。接続を閉じます。')
                     
                     # サーバーにダウンロードしたファイルを削除する
-                    self._removeSpecifyData(filename)
+                    self._removeSpecifyData(self.fileName)
 
                     print('[TCP]disconnecting from {} {}'.format(address, now.strftime('%Y/%m/%d %H:%M:%S')))
+
                     break
 
-                    # リセット
-
-
+                   
 
             except Exception as err:
                 print(f'[TCP]Error: {str(err)}')
@@ -148,12 +144,14 @@ class Tcp_server:
         # jsonデータの受信
         json_data = protocol.remove_padding(con.recv(json_size))
         self.json_data = json.loads(json_data.decode('utf-8'))
-
+        # ファイル名の取得とコマンドのファイル名項の書き換え
+        self.fileName = self._getFileName(self.json_data)
         # メディアタイプデータの受信
         self.media_type = con.recv(media_type_size)
+
         # 動画データをダウンロード
         flag = True
-        with open('temp/recv.mp4', 'wb+') as f:
+        with open('temp/' + self.fileName, 'wb+') as f:
             while self.data_size > 0:
                 data = con.recv(self.data_size if self.data_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
@@ -175,7 +173,6 @@ class Tcp_server:
             
     # データ送信
     def _uploadData(self, con: socket, filename: str, json: str) -> None:
-        print('データの送信を開始します。')
         # jsonデータの送信
         con.send(protocol.ljust_replace_padding(json ,100))
         # メディアタイプの送信
@@ -213,33 +210,44 @@ class Tcp_server:
             con.send(protocol.response_protocol(0, 'Processing...'))
             await asyncio.sleep(30)
     
-
     # ファイル情報のセット
     def _setFileInfo(self, filename: str) -> None:
         path = 'temp/' + filename
         if os.path.exists(path) == False:
             raise Exception('ファイルが見つかりません。')
         
-        self.media_type = self._getFileType(path)
-        self.data_size = self._getFileSize(path)
-
-    # ファイルタイプの取得
-    def _getFileType(self, path: str) -> str:
-        ext = os.path.splitext(path)[1]
-        return ext[1:]
-    
-    # ファイルサイズの取得
-    def _getFileSize(self, path: str) -> int:
-        size = os.path.getsize(path)
-        return size
+        self.media_type = os.path.splitext(path)[1]
+        self.data_size = os.path.getsize(path)
 
     # 編集後のファイル名取得
-    def _getFileName(self, command: str) -> str:
+    def _getEditedFileName(self, command: str) -> str:
         # 編集後のファイル名取得
         target = 'temp/'
         filename = command[command.rfind(target) + len(target):]
         print('編集後のファイル名： ' + str(filename))
         return filename
+
+    # ダウンロードデータのファイル名取得とコマンドのファイル名項の書き換え
+    def _getFileName(self, json: dict) -> str:
+        # ファイル名の取得
+        fileName = self._duplicate_rename('recv.mp4')
+        json["command"] = json["command"].replace('input', fileName)
+
+        return fileName
+
+    # ファイル名被りを判別してリネームする関数
+    def _duplicate_rename(self, file_path: str) -> str:
+        if os.path.exists('temp/' + file_path):
+            name, ext = os.path.splitext(file_path)
+            i = 1
+            while True:
+                # 被りのあるファイルがあった場合はファイル名の後に（num）を挿入する
+                new_name = "{}({}){}".format(name, i, ext)
+                if not os.path.exists('temp/' + new_name):
+                    return new_name
+                i += 1
+        else:
+            return file_path
 
     # 指定の動画ファイルを削除
     def _removeSpecifyData(self, filename: str) -> None:
