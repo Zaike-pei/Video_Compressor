@@ -73,13 +73,14 @@ class Tcp_client:
                 self.sock.send(protocol.response_protocol(2, 'can`t reciev'))
                 raise Exception('ヘッダーの受信ができませんでした。')
             
+            # ヘッダ取得完了のレスポンスを返す
+            self.sock.send(protocol.response_protocol(1, 'recieved header'))
+
             # データサイズをヘッダから取得
             json_size = protocol.get_json_size(header)
             media_type_size = protocol.get_media_type_size(header)
             self.content_size = protocol.get_payload_size(header) 
 
-            # ヘッダ取得完了のレスポンスを返す
-            self.sock.send(protocol.response_protocol(1, 'recieved header'))
             # データを受信
             self._receivData(self.sock, json_size, media_type_size)
 
@@ -138,7 +139,9 @@ class Tcp_client:
     def _createCommand(self) -> str:
         # パスからファイル名を取得
         file, ext = os.path.splitext(self.content)
-        cmd = 'ffmpeg -i temp/recv.mp4'
+        #cmd = 'ffmpeg -i temp/recv.mp4'
+        # test
+        cmd = 'ffmpeg -i temp/input'
         # ナビゲーションによりコマンドを作成
         while True:
             process_code = unicodedata.normalize('NFKC', input('処理の選択を行います。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
@@ -295,12 +298,10 @@ class Tcp_client:
         # jsonデータの受信
         byte_json_data = protocol.remove_padding(con.recv(json_size))
         self.json_data = json.loads(byte_json_data.decode('utf-8'))
-
         # メディアタイプデータの受信
         self.content_type = con.recv(media_type_size)
-
         # ダウンロードデータのファイル名を取得
-        filename = self.json_data['filename']
+        filename = self._duplicate_rename(self.json_data['filename'])
 
         # 動画データを受信
         flag = True # 判定用の変数
@@ -308,16 +309,12 @@ class Tcp_client:
             while self.content_size > 0:
                 data = con.recv(self.content_size if self.content_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
-                #print('recieved {} bytes'.format(len(data)))
                 self.content_size -= len(data)
-                #print('rest bytes:' + str(self.data_size) + ' bytes')
-
                 # 受信するべきデータがまだ残っている且つ受信データが無い場合処理中断
                 if len(data) == 0 and self.content_size > 0:
                     print('接続の問題によりクライアントからの受信データがないため受信待ちを終了します。')
                     flag = False
                     break
-        
         # ダウンロード結果をフラッグで判定
         if flag:
             print('Finished download the file from server')
@@ -326,6 +323,19 @@ class Tcp_client:
             print('動画ダウンロード中にエラーが発生しました。')
             self.state = 2
 
+    # ファイル名被りを判別してリネームする関数
+    def _duplicate_rename(self, file_path: str) -> str:
+        if os.path.exists('output/' + file_path):
+            name, ext = os.path.splitext(file_path)
+            i = 1
+            while True:
+                # 被りのあるファイルがあった場合はファイル名の後に（num）を挿入する
+                new_name = "{}({}){}".format(name, i, ext)
+                if not os.path.exists('output/' + new_name):
+                    return new_name
+                i += 1
+        else:
+            return file_path
 
 def main():
     tcp_client = Tcp_client()
