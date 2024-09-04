@@ -49,7 +49,6 @@ def remove_padding(data: bytes) -> bytes:
 
 # ファイルサイズの確認
 def fileSize_Check(size: int) -> bool:
-    print(size)
     if size < pow(2, 32):
         return True
     else:

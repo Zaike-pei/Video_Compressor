@@ -33,6 +33,9 @@ class Tcp_client:
             self._getFileInfo()
             # コマンドを作成
             command = self._createCommand()
+            # 終了選択の場合
+            if command == '':
+                raise Exception('プログラムを終了します。')
             # jsonの作成とヘッダの作成
             self.json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
             header = protocol.protocol_media_header(self.json_data, self.content_type, self.content_size)
@@ -99,7 +102,6 @@ class Tcp_client:
 
         except Exception as err:
             print('ERROR:' + str(err))
-            print('エラーが発生したためプログラムを終了します。')
         finally:
             print('closing socket')
             self.sock.close()
@@ -118,7 +120,12 @@ class Tcp_client:
     def _checkFileType(self) -> str:
         temp = ''
         while True:
-            self.content = input('type in mp4 file to upload to server:')
+            print('-----------------------------------------------')
+            self.content = input('If you want to quit the process, type "exit".\ntype in mp4 file to upload to server:')
+            # 処理を終了の場合
+            if self.content == 'exit':
+                raise Exception('プログラムを終了します。')
+            
             path = 'input/' + self.content
             ext = os.path.splitext(path)[1]
             # ファイルが存在するかの確認
@@ -139,13 +146,11 @@ class Tcp_client:
     def _createCommand(self) -> str:
         # パスからファイル名を取得
         file, ext = os.path.splitext(self.content)
-        #cmd = 'ffmpeg -i temp/recv.mp4'
-        # test
         cmd = 'ffmpeg -i temp/input'
         # ナビゲーションによりコマンドを作成
         while True:
-            process_code = unicodedata.normalize('NFKC', input('処理の選択を行います。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
-                                '5.GIFファイルの作成 \n6.指定した動画ファイルの情報を表示\n----------------------------------\n' +
+            process_code = unicodedata.normalize('NFKC', input('処理の選択をして下さい。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
+                                '5.GIFファイルの作成 \n6.動画の指定秒数切り取り\n7.指定した動画ファイルの情報を表示（未実装）\n8.終了\n----------------------------------\n' +
                                 '指定した動画に対して、行いたい処理を番号で入力してください: '))
             # 圧縮
             if process_code == '1':
@@ -239,9 +244,8 @@ class Tcp_client:
                 list = []
                 while True:
                     print('gifファイルの作成を行います。')
-                    sec = unicodedata.normalize('NFKC', input('開始地点(秒)と終了地点(秒)を半角スペース区切りの秒指定で指定してください。\n例)01:30 から 2:30 => 90 150\n' +
-                                '入力してください：')).split(' ')
-
+                    sec = unicodedata.normalize('NFKC', input('開始地点(秒)と終了地点(秒)を半角スペース区切りの秒指定で入力してください。\n例)01:30 から 2:30 => 90 150\n' +
+                                '入力：')).split(' ')
 
                     if sec[0].isdigit() and sec[1].isdigit():
                         list.append(sec[0])
@@ -253,10 +257,32 @@ class Tcp_client:
 
                 cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/' + file + '.gif'
                 break
-            # 動画ファイルの情報表示（未実装）
+            # 動画の切り取り
             elif process_code == '6':
+                list = []
+                while True:
+                    print('動画の切り取り処理に移行します。')
+                    sec = unicodedata.normalize('NFKC', input('開始地点（秒）と終了地点（秒）を半角スペース区切りの秒指定で入力して下さい。\n例)01:30 から 2:30 => 90 150\n' +
+                                                              '入力：')).split(' ')
+                    
+                    if sec[0].isdigit() and sec[1].isdigit():
+                        for s in sec:
+                            list.append(s)
+                        break
+                    else:
+                        print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
+                        print('--------------------------------------------------------------------------------')
+                
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' temp/cut_' + file + '.mp4'
+                break       
+            # 動画ファイルの情報表示（未実装）
+            elif process_code == '7':
                 print('動画情報')
                 print('動画情報........................')
+            # 終了
+            elif process_code == '8':
+                cmd = ''
+                return cmd
             else:
                 print('[error]行いたい処理の番号を入力してください。')
             print('-----------------------------------------')

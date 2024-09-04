@@ -76,7 +76,8 @@ class Tcp_server:
                     connection.send(protocol.response_protocol(1, 'recieved data'))
 
                     # 動画編集とクライアントへのメッセージ送信
-                    tasks = [asyncio.create_task(self._video_Editing(self.json_data['command'])), asyncio.create_task(self._send_message_loop(connection))]
+                    tasks = [asyncio.create_task(self._video_Editing(self.json_data['command'])),
+                                asyncio.create_task(self._send_message_loop(connection))]
                     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                     # 結果をレスポンスする
                     for task in done:
@@ -123,7 +124,7 @@ class Tcp_server:
                         print('クライアントがデータ受信段階においてエラーが発生しています。')
                         raise Exception('クライアント側で受信エラーが発生しました。接続を閉じます。')
                     
-                    # サーバーにダウンロードしたファイルを削除する
+                    # 編集したデータを削除する
                     self._removeSpecifyData(self.fileName)
 
                     print('[TCP]disconnecting from {} {}'.format(address, now.strftime('%Y/%m/%d %H:%M:%S')))
@@ -135,6 +136,7 @@ class Tcp_server:
             except Exception as err:
                 print(f'[TCP]Error: {str(err)}')
             finally:
+                self.resetVariable()
                 print('[TCP]closing socket')
                 connection.close()
 
@@ -221,7 +223,6 @@ class Tcp_server:
 
     # 編集後のファイル名取得
     def _getEditedFileName(self, command: str) -> str:
-        # 編集後のファイル名取得
         target = 'temp/'
         filename = command[command.rfind(target) + len(target):]
         print('編集後のファイル名： ' + str(filename))
@@ -253,7 +254,12 @@ class Tcp_server:
     def _removeSpecifyData(self, filename: str) -> None:
         os.remove('temp/' + filename)
 
-
+    def resetVariable(self):
+        self.data_size = 0
+        self.state = 0
+        self.media_type = ''
+        self.json_data = ''
+        self.fileName = ''
 
 
 def main():
