@@ -1,10 +1,8 @@
-import sys
 import socket
 import os
 import unicodedata
 import protocol
 import json
-import asyncio
 import time
 
 
@@ -33,6 +31,9 @@ class Tcp_client:
             self._getFileInfo()
             # コマンドを作成
             command = self._createCommand()
+            # 終了選択の場合
+            if command == '':
+                raise Exception('プログラムを終了します。')
             # jsonの作成とヘッダの作成
             self.json_data = protocol.make_json(self.content, self.content_type, 1, "", command)
             header = protocol.protocol_media_header(self.json_data, self.content_type, self.content_size)
@@ -42,7 +43,7 @@ class Tcp_client:
             response = self.sock.recv(self.header_buffer_size)
             print('[server]:' + protocol.get_message(response))
 
-            # ヘッダー受信段階でエラーコードだった場合
+            # ヘッダー受信段階でエラー
             if protocol.get_state(response) != 1:
                 raise Exception('ヘッダー送信段階でエラーが発生しました。')
 
@@ -53,14 +54,14 @@ class Tcp_client:
             self.state = protocol.get_state(response)
             print('[server]:' + protocol.get_message(response))
 
-            # 動画アップロード段階でエラーコードだった場合
+            # 動画アップロード段階でエラーコード
             if self.state != 1:
                 raise Exception('データ送信段階でエラーが発生しました。')
             
             # 動画編集終了まで待機
             resultCode = self._wait_response_loop(self.sock)
 
-            # サーバーからエラーコードを受信した場合
+            # サーバーからエラーコード受信
             if resultCode != 1:
                 print('サーバーの編集処理中にエラーが発生しました。')
                 raise Exception('サーバーで編集処理中にエラーが発生しました。')
@@ -68,22 +69,23 @@ class Tcp_client:
             # ヘッダーの受信
             header = self.sock.recv(self.header_buffer_size)
 
-            # ヘッダー受信ができなかった場合
+            # ヘッダー受信エラー
             if header == b'':
                 self.sock.send(protocol.response_protocol(2, 'can`t reciev'))
                 raise Exception('ヘッダーの受信ができませんでした。')
             
+            # ヘッダ取得完了のレスポンスを返す
+            self.sock.send(protocol.response_protocol(1, 'recieved header'))
+
             # データサイズをヘッダから取得
             json_size = protocol.get_json_size(header)
             media_type_size = protocol.get_media_type_size(header)
             self.content_size = protocol.get_payload_size(header) 
 
-            # ヘッダ取得完了のレスポンスを返す
-            self.sock.send(protocol.response_protocol(1, 'recieved header'))
             # データを受信
             self._receivData(self.sock, json_size, media_type_size)
 
-            # データ受信段階でエラーコードだった場合
+            # データ受信段階でエラーコード受信
             if self.state != 1:
                 self.sock.send(protocol.response_protocol(2, 'failed upload'))
                 raise Exception('データダウンロード段階でエラーが発生しました。')
@@ -98,7 +100,6 @@ class Tcp_client:
 
         except Exception as err:
             print('ERROR:' + str(err))
-            print('エラーが発生したためプログラムを終了します。')
         finally:
             print('closing socket')
             self.sock.close()
@@ -117,7 +118,12 @@ class Tcp_client:
     def _checkFileType(self) -> str:
         temp = ''
         while True:
-            self.content = input('type in mp4 file to upload to server:')
+            print('-----------------------------------------------')
+            self.content = input('If you want to quit the process, type "exit".\ntype in mp4 file to upload to server:')
+            # 処理を終了の場合
+            if self.content == 'exit':
+                raise Exception('プログラムを終了します。')
+            
             path = 'input/' + self.content
             ext = os.path.splitext(path)[1]
             # ファイルが存在するかの確認
@@ -137,16 +143,15 @@ class Tcp_client:
     # ffmpegのコマンドを作成
     def _createCommand(self) -> str:
         # パスからファイル名を取得
-        file, ext = os.path.splitext(self.content)
-        cmd = 'ffmpeg -i temp/recv.mp4'
+        cmd = 'ffmpeg -i temp/input.mp4'
         # ナビゲーションによりコマンドを作成
         while True:
-            process_code = unicodedata.normalize('NFKC', input('処理の選択を行います。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
-                                '5.GIFファイルの作成 \n6.指定した動画ファイルの情報を表示\n----------------------------------\n' +
+            process_code = unicodedata.normalize('NFKC', input('処理の選択をして下さい。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
+                                '5.GIFファイルの作成 \n6.動画の指定秒数切り取り\n7.指定した動画ファイルの情報を表示（未実装）\n8.終了\n----------------------------------\n' +
                                 '指定した動画に対して、行いたい処理を番号で入力してください: '))
             # 圧縮
             if process_code == '1':
-                cmd += ' -crf 28 temp/comp_' + file + '.mp4'
+                cmd += ' -crf 28 temp/comp_output.mp4'
                 break
             # 解像度の変更
             elif process_code == '2':
@@ -200,7 +205,7 @@ class Tcp_client:
                     else:
                         print('[error]適応させたい解像度の番号を入力してください。')
                         print('---------------------------------------------------------')    
-                cmd += 'temp/changeQuality_' + file + '.mp4'
+                cmd += 'temp/changeQuality_output.mp4'
                 print('解像度を決定しました')
                 break
             # アスペクト比の変更
@@ -224,22 +229,20 @@ class Tcp_client:
                     else:
                         print('[error]適応したいアスペクト比の番号で入力してください。')
                         print('-----------------------------------------------------------')
-                cmd += 'temp/changeAspect_' + file + '.mp4'
+                cmd += 'temp/changeAspect_output.mp4'
                 print('アスペクト比を決定しました')
                 break
             #  音声データ(mp3)の抽出
             elif process_code == '4':
-                cmd += ' -ab 256k temp/' + file + '.mp3'
+                cmd += ' -ab 256k temp/output.mp3'
                 break
             # gif ファイルの作成
             elif process_code == '5':
                 list = []
                 while True:
                     print('gifファイルの作成を行います。')
-                    sec = unicodedata.normalize('NFKC', input('開始地点(秒)と終了地点(秒)を半角スペース区切りの秒指定で指定してください。\n例)01:30 から 2:30 => 90 150\n' +
-                                '入力してください：')).split(' ')
-
-
+                    sec = unicodedata.normalize('NFKC', input('開始地点(秒)と終了地点(秒)を半角スペース区切りの秒指定で入力してください。\n例)01:30 から 2:30 => 90 150\n' +
+                                '入力：')).split(' ')
                     if sec[0].isdigit() and sec[1].isdigit():
                         list.append(sec[0])
                         list.append(sec[1])
@@ -248,16 +251,37 @@ class Tcp_client:
                         print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
                         print('--------------------------------------------------------------------------------')
 
-                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/' + file + '.gif'
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/output.gif'
                 break
-            # 動画ファイルの情報表示（未実装）
+            # 動画の切り取り
             elif process_code == '6':
+                list = []
+                while True:
+                    print('動画の切り取り処理に移行します。')
+                    sec = unicodedata.normalize('NFKC', input('開始地点（秒）と終了地点（秒）を半角スペース区切りの秒指定で入力して下さい。\n例)01:30 から 2:30 => 90 150\n' +
+                                                              '入力：')).split(' ')
+                    if sec[0].isdigit() and sec[1].isdigit():
+                        for s in sec:
+                            list.append(s)
+                        break
+                    else:
+                        print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
+                        print('--------------------------------------------------------------------------------')
+                
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' temp/cut_output.mp4'
+                break       
+            # 動画ファイルの情報表示（未実装）
+            elif process_code == '7':
                 print('動画情報')
                 print('動画情報........................')
+            # 終了
+            elif process_code == '8':
+                cmd = ''
+                return cmd
             else:
                 print('[error]行いたい処理の番号を入力してください。')
             print('-----------------------------------------')
-        print('作成したコマンド: ' + cmd)
+
         return cmd
     
     # データをサーバに送信する
@@ -295,29 +319,23 @@ class Tcp_client:
         # jsonデータの受信
         byte_json_data = protocol.remove_padding(con.recv(json_size))
         self.json_data = json.loads(byte_json_data.decode('utf-8'))
-
         # メディアタイプデータの受信
         self.content_type = con.recv(media_type_size)
-
         # ダウンロードデータのファイル名を取得
-        filename = self.json_data['filename']
+        filename = self.json_data["file_name"]
 
         # 動画データを受信
         flag = True # 判定用の変数
-        with open('output/' + filename, 'wb+') as f:
+        with open('output/comp_' + filename, 'wb+') as f:
             while self.content_size > 0:
                 data = con.recv(self.content_size if self.content_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
-                #print('recieved {} bytes'.format(len(data)))
                 self.content_size -= len(data)
-                #print('rest bytes:' + str(self.data_size) + ' bytes')
-
                 # 受信するべきデータがまだ残っている且つ受信データが無い場合処理中断
                 if len(data) == 0 and self.content_size > 0:
                     print('接続の問題によりクライアントからの受信データがないため受信待ちを終了します。')
                     flag = False
                     break
-        
         # ダウンロード結果をフラッグで判定
         if flag:
             print('Finished download the file from server')
