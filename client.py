@@ -1,10 +1,8 @@
-import sys
 import socket
 import os
 import unicodedata
 import protocol
 import json
-import asyncio
 import time
 
 
@@ -45,7 +43,7 @@ class Tcp_client:
             response = self.sock.recv(self.header_buffer_size)
             print('[server]:' + protocol.get_message(response))
 
-            # ヘッダー受信段階でエラーコードだった場合
+            # ヘッダー受信段階でエラー
             if protocol.get_state(response) != 1:
                 raise Exception('ヘッダー送信段階でエラーが発生しました。')
 
@@ -56,14 +54,14 @@ class Tcp_client:
             self.state = protocol.get_state(response)
             print('[server]:' + protocol.get_message(response))
 
-            # 動画アップロード段階でエラーコードだった場合
+            # 動画アップロード段階でエラーコード
             if self.state != 1:
                 raise Exception('データ送信段階でエラーが発生しました。')
             
             # 動画編集終了まで待機
             resultCode = self._wait_response_loop(self.sock)
 
-            # サーバーからエラーコードを受信した場合
+            # サーバーからエラーコード受信
             if resultCode != 1:
                 print('サーバーの編集処理中にエラーが発生しました。')
                 raise Exception('サーバーで編集処理中にエラーが発生しました。')
@@ -71,7 +69,7 @@ class Tcp_client:
             # ヘッダーの受信
             header = self.sock.recv(self.header_buffer_size)
 
-            # ヘッダー受信ができなかった場合
+            # ヘッダー受信エラー
             if header == b'':
                 self.sock.send(protocol.response_protocol(2, 'can`t reciev'))
                 raise Exception('ヘッダーの受信ができませんでした。')
@@ -87,7 +85,7 @@ class Tcp_client:
             # データを受信
             self._receivData(self.sock, json_size, media_type_size)
 
-            # データ受信段階でエラーコードだった場合
+            # データ受信段階でエラーコード受信
             if self.state != 1:
                 self.sock.send(protocol.response_protocol(2, 'failed upload'))
                 raise Exception('データダウンロード段階でエラーが発生しました。')
@@ -145,8 +143,7 @@ class Tcp_client:
     # ffmpegのコマンドを作成
     def _createCommand(self) -> str:
         # パスからファイル名を取得
-        file, ext = os.path.splitext(self.content)
-        cmd = 'ffmpeg -i temp/input'
+        cmd = 'ffmpeg -i temp/input.mp4'
         # ナビゲーションによりコマンドを作成
         while True:
             process_code = unicodedata.normalize('NFKC', input('処理の選択をして下さい。\n1.圧縮\n2.解像度の変更 \n3.アスペクト比の変更 \n4.音声データ(mp3)の抽出\n' +
@@ -154,7 +151,7 @@ class Tcp_client:
                                 '指定した動画に対して、行いたい処理を番号で入力してください: '))
             # 圧縮
             if process_code == '1':
-                cmd += ' -crf 28 temp/comp_' + file + '.mp4'
+                cmd += ' -crf 28 temp/comp_output.mp4'
                 break
             # 解像度の変更
             elif process_code == '2':
@@ -208,7 +205,7 @@ class Tcp_client:
                     else:
                         print('[error]適応させたい解像度の番号を入力してください。')
                         print('---------------------------------------------------------')    
-                cmd += 'temp/changeQuality_' + file + '.mp4'
+                cmd += 'temp/changeQuality_output.mp4'
                 print('解像度を決定しました')
                 break
             # アスペクト比の変更
@@ -232,12 +229,12 @@ class Tcp_client:
                     else:
                         print('[error]適応したいアスペクト比の番号で入力してください。')
                         print('-----------------------------------------------------------')
-                cmd += 'temp/changeAspect_' + file + '.mp4'
+                cmd += 'temp/changeAspect_output.mp4'
                 print('アスペクト比を決定しました')
                 break
             #  音声データ(mp3)の抽出
             elif process_code == '4':
-                cmd += ' -ab 256k temp/' + file + '.mp3'
+                cmd += ' -ab 256k temp/output.mp3'
                 break
             # gif ファイルの作成
             elif process_code == '5':
@@ -246,7 +243,6 @@ class Tcp_client:
                     print('gifファイルの作成を行います。')
                     sec = unicodedata.normalize('NFKC', input('開始地点(秒)と終了地点(秒)を半角スペース区切りの秒指定で入力してください。\n例)01:30 から 2:30 => 90 150\n' +
                                 '入力：')).split(' ')
-
                     if sec[0].isdigit() and sec[1].isdigit():
                         list.append(sec[0])
                         list.append(sec[1])
@@ -255,7 +251,7 @@ class Tcp_client:
                         print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
                         print('--------------------------------------------------------------------------------')
 
-                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/' + file + '.gif'
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' -r 10 temp/output.gif'
                 break
             # 動画の切り取り
             elif process_code == '6':
@@ -264,7 +260,6 @@ class Tcp_client:
                     print('動画の切り取り処理に移行します。')
                     sec = unicodedata.normalize('NFKC', input('開始地点（秒）と終了地点（秒）を半角スペース区切りの秒指定で入力して下さい。\n例)01:30 から 2:30 => 90 150\n' +
                                                               '入力：')).split(' ')
-                    
                     if sec[0].isdigit() and sec[1].isdigit():
                         for s in sec:
                             list.append(s)
@@ -273,7 +268,7 @@ class Tcp_client:
                         print('[error]開始地点の秒数と終了地点秒数をスペース区切で入力してください。')
                         print('--------------------------------------------------------------------------------')
                 
-                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' temp/cut_' + file + '.mp4'
+                cmd += ' -ss ' + list[0] + ' -t ' + list[1] + ' temp/cut_output.mp4'
                 break       
             # 動画ファイルの情報表示（未実装）
             elif process_code == '7':
@@ -286,7 +281,7 @@ class Tcp_client:
             else:
                 print('[error]行いたい処理の番号を入力してください。')
             print('-----------------------------------------')
-        print('作成したコマンド: ' + cmd)
+
         return cmd
     
     # データをサーバに送信する
@@ -327,11 +322,11 @@ class Tcp_client:
         # メディアタイプデータの受信
         self.content_type = con.recv(media_type_size)
         # ダウンロードデータのファイル名を取得
-        filename = self._duplicate_rename(self.json_data['filename'])
+        filename = self.json_data["file_name"]
 
         # 動画データを受信
         flag = True # 判定用の変数
-        with open('output/' + filename, 'wb+') as f:
+        with open('output/comp_' + filename, 'wb+') as f:
             while self.content_size > 0:
                 data = con.recv(self.content_size if self.content_size <= self.stream_rate else self.stream_rate)
                 f.write(data)
@@ -349,19 +344,6 @@ class Tcp_client:
             print('動画ダウンロード中にエラーが発生しました。')
             self.state = 2
 
-    # ファイル名被りを判別してリネームする関数
-    def _duplicate_rename(self, file_path: str) -> str:
-        if os.path.exists('output/' + file_path):
-            name, ext = os.path.splitext(file_path)
-            i = 1
-            while True:
-                # 被りのあるファイルがあった場合はファイル名の後に（num）を挿入する
-                new_name = "{}({}){}".format(name, i, ext)
-                if not os.path.exists('output/' + new_name):
-                    return new_name
-                i += 1
-        else:
-            return file_path
 
 def main():
     tcp_client = Tcp_client()

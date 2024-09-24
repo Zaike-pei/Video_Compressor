@@ -19,7 +19,7 @@ def response_protocol(state: int, message: str) -> bytes:
 
 def make_json(content: str, type: str, state: int, message: str, command: str) -> str:
     json_data = {
-        "filename": content,
+        "file_name": content,
         "content-type": type,
         "state": state,
         "message": message,
