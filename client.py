@@ -63,7 +63,6 @@ class Tcp_client:
 
             # サーバーからエラーコード受信
             if resultCode != 1:
-                print('サーバーの編集処理中にエラーが発生しました。')
                 raise Exception('サーバーで編集処理中にエラーが発生しました。')
             
             # ヘッダーの受信

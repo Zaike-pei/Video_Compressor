@@ -42,6 +42,7 @@ class Tcp_server:
     # コルーチン起動
     def _handle_client_process(self, con, address):
         asyncio.run(self._handle_client(con, address))
+        
 
     # クライアントとのデータの送受信を開始
     async def _handle_client(self, con, address):
@@ -64,29 +65,21 @@ class Tcp_server:
                     con.send(protocol.response_protocol(2, 'failed upload'))
                     raise Exception('データ受信シーケンスでエラーが発生しました。')
                 
+                # 編集前と編集後のファイル名を保持
+                before_file_name = resultsList['file_name']
+                after_file_name = self._getEditedFileName(resultsList["json_data"]["command"])
                 # データ取得完了のレスポンスを送信
                 con.send(protocol.response_protocol(1, 'recieved data'))
 
                 # 動画編集とクライアントへのメッセージ送信をタスクで実行
                 tasks = [asyncio.create_task(self._video_Editing(resultsList["json_data"]['command'])),
                             asyncio.create_task(self._send_message_loop(con))]
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-
-                for task in done:
-                    # 動画編集処理が失敗
-                    if task.result() != 0:
-                        con.send(protocol.response_protocol(2, 'error'))
-                        raise Exception('動画編集シーケンスでエラーが発生しました。')
-                    # 編集完了のレスポンスを送信
-                    con.send(protocol.response_protocol(1, 'done'))
-
-                for task in tasks:
-                    task.cancel()
+                await self._run_task(con, tasks, before_file_name, after_file_name)
 
                 # ダウンロードデータを削除
-                self._removeData(resultsList["file_name"])
+                self._removeData(before_file_name)
                 # 編集後のファイル情報を取得
-                fileInfoList = self._setFileInfo(self._getEditedFileName(resultsList["json_data"]["command"]))
+                fileInfoList = self._setFileInfo(after_file_name)
                 # jsonの作成
                 json_data = protocol.make_json(fileInfoList["file_name"], fileInfoList["media_type"], 1, '', '')
                 # ヘッダの作成
@@ -111,7 +104,7 @@ class Tcp_server:
                     raise Exception('クライアント側で受信エラーが発生しました。接続を閉じます。')
                 
                 # 編集後のデータを削除する
-                self._removeData(fileInfoList["file_name"])
+                self._removeData(after_file_name)
 
                 print('[TCP]disconnect from {} {}'.format(address, self._time_stamp()))
                 break
@@ -188,7 +181,32 @@ class Tcp_server:
         while True:
             con.send(protocol.response_protocol(0, 'Processing...'))
             await asyncio.sleep(30)
-    
+
+    # タスク実行用の関数
+    async def _run_task(self, con, tasks, before_file, after_file):
+        try:
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=120)
+            # タイムアウトエラーを捕捉
+            if not done and pending:
+                raise asyncio.TimeoutError
+
+            for task in done:
+                # 動画編集処理が失敗
+                if task.result() != 0:
+                    con.send(protocol.response_protocol(2, 'Edit error'))
+                    raise Exception('動画編集シーケンスでエラーが発生しました。')
+                # 編集完了のレスポンスを送信
+                con.send(protocol.response_protocol(1, 'done'))
+
+            for task in task:
+                task.cancel()
+        
+        except asyncio.TimeoutError as err:
+            self._removeData(before_file)
+            self._removeData(after_file)
+            con.send(protocol.response_protocol(2, 'Timeout Error'))
+            raise Exception('Timeout Error')
+        
     # ファイル情報のセット
     def _setFileInfo(self, filename: str) -> dict:
         try:
