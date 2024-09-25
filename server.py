@@ -110,9 +110,9 @@ class Tcp_server:
                 break
 
         except Exception as err:
-            print(f'[TCP]Error: {str(err)}')
+            print('[TCP]Error: {} {}'.format(str(err), address))
         finally:
-            print('[TCP]closing socket')
+            print('[TCP]closing socket from {} {}'.format(address, self._time_stamp()))
             con.close()
 
     # データ受信処理

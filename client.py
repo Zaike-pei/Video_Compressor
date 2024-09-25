@@ -4,6 +4,7 @@ import unicodedata
 import protocol
 import json
 import time
+import threading
 
 
 class Tcp_client:
@@ -91,14 +92,13 @@ class Tcp_client:
             
             self.sock.send(protocol.response_protocol(1, 'completed'))
 
-            print('正常にプログラムが動作しました。プログラムを終了します。')
+            print('正常にプログラムが実行されました。プログラムを終了します。')
                          
         except socket.error as err:
             print('Socket_ERROR:' + str(err))
             print('プログラムを終了します')
-
         except Exception as err:
-            print('ERROR:' + str(err))
+            print('\nERROR:' + str(err))
         finally:
             print('closing socket')
             self.sock.close()
@@ -118,7 +118,10 @@ class Tcp_client:
         temp = ''
         while True:
             print('-----------------------------------------------')
-            self.content = input('If you want to quit the process, type "exit".\ntype in mp4 file to upload to server:')
+            try:   
+                self.content = self._input_with_timeout('If you want to quit the process, type "exit".\ntype in mp4 file to upload to server:', timeout=30)
+            except TimeoutError as err:
+                raise Exception("タイムアウトエラーが発生しました。")
             # 処理を終了の場合
             if self.content == 'exit':
                 raise Exception('プログラムを終了します。')
@@ -138,7 +141,25 @@ class Tcp_client:
                 print('this file not exsits in input folder.')
 
         return temp
-                
+
+    # タイムアウト付き標準入力
+    def _input_with_timeout(self, prompt, timeout=10):
+        self.input_result = None
+
+        def get_input():
+            self.input_result = input(prompt)
+
+        input_thread = threading.Thread(target=get_input)
+        input_thread.deamon = True
+        input_thread.start()
+
+        input_thread.join(timeout)
+
+        if self.input_result is None:
+            raise TimeoutError("入力がタイムアウトしました。")
+        
+        return self.input_result
+
     # ffmpegのコマンドを作成
     def _createCommand(self) -> str:
         # パスからファイル名を取得
