@@ -25,6 +25,15 @@ class Tcp_client:
     
     def start(self):
         try:
+            # inputディレクトリの作成
+            if not os.path.exists('input'):
+                print('inputディレクトリを作成しました、mp4データをインプットフォルダーに準備して下さい。')
+                os.makedirs('input')
+            
+            # outputディレクトリの作成 
+            if not os.path.exists('output'):
+                os.makedirs('output')
+
             self.sock.connect((self.server_address, self.server_port))
             print('connection server_address: {} server_port: {}'.format(self.server_address, self.server_port))
 
